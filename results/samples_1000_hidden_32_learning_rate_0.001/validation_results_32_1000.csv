@@ -1,0 +1,6 @@
+Epochs,Hidden_Dim,Samples,Data_Type,R_Squared,Mean_Abs_Rel_Residual,Max_Abs_Rel_Residual
+1000,32,1000,Validation,0.9967409067360155,tensor(0.0938),tensor(0.1977)
+1000,32,1000,Validation,0.9975310074526615,tensor(0.0680),tensor(0.1229)
+1000,32,1000,Validation,0.9978766260078787,tensor(0.0692),tensor(0.1253)
+1000,32,1000,Validation,0.9966439976943037,tensor(0.0827),tensor(0.1296)
+1000,32,1000,Validation,0.998125984804412,tensor(0.0650),tensor(0.1397)

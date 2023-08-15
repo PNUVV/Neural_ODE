@@ -1,0 +1,2 @@
+N_Samples,Hidden_Dim,Learning_Rate,Epochs,Data_Type,R_Squared,Mean_Abs_Rel_Residual,Max_Abs_Rel_Residual
+100,32,0.001,100,Train,0.9551549637378828,0.19766198098659515,0.4231564402580261
