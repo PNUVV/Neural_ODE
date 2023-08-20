@@ -16,12 +16,12 @@ from scipy.interpolate import griddata
 
 
 ##########################################################################################################################
-#2023 0820 15:40 update
+#2023 0820 15:48 update
 n_samples = 1000
 num_layers = 2
 hidden_dim = 32
 learning_rate = 0.005
-epochs = 300
+epochs = 100
 
 ##########################################################################################################################
 
@@ -186,7 +186,32 @@ def save_loss_and_validation(losses, validation_results, save_path, hidden_dim,n
     plt.savefig(f"{save_path}/loss_and_validation_{hidden_dim}_{n_samples}_{idx}.png")
     plt.close()
 
-def save_2d_and_actual_vs_predicted(x_data, x_pred, data_type, hidden_dim, n_samples, epochs, save_path):
+def save_2d_and_actual_vs_predicted_train(x_data, x_pred, data_type, hidden_dim, n_samples, epochs, save_path):
+    file_suffix = f"{data_type}"
+    # 2D Motion Plot
+    plt.plot(x_data[:, 0].detach().numpy(), x_data[:, 1].detach().numpy(), label='True trajectory')
+    plt.plot(x_pred[:, 0].detach().numpy(), x_pred[:, 1].detach().numpy(), label='Neural ODE approximation')
+    plt.legend()
+    plt.xlabel('X Position')
+    plt.ylabel('Y Position')
+    plt.title('2D Motion')
+    plt.savefig(f"{save_path}/{file_suffix}_2D_motion.png")
+    plt.close()
+
+    # Actual vs Predicted Plot
+    plt.plot(x_data[:, 0].detach().numpy(), x_pred[:, 0].detach().numpy(), label='X Position')
+    plt.plot(x_data[:, 1].detach().numpy(), x_pred[:, 1].detach().numpy(), label='Y Position')
+    plt.plot(torch.linspace(-1, 1, 1000), torch.linspace(-1, 1, 1000), color='red', linewidth=1.2)
+    plt.xlabel('Actual')
+    plt.ylabel('Predicted')
+    plt.legend()
+    plt.title('Actual vs Predicted Plot')
+    # plt.grid()
+    plt.savefig(f"{save_path}/{file_suffix}_actual_vs_predict.png")
+    plt.close()
+    file_suffix = f"{data_type}_hidden_dim_{hidden_dim}_samples_{n_samples}_epochs_{epochs}"
+    
+def save_2d_and_actual_vs_predicted_test(x_data, x_pred, data_type, hidden_dim, n_samples, epochs, save_path):
     file_suffix = f"{data_type}"
     # 2D Motion Plot
     plt.plot(x_data[:, 0].detach().numpy(), x_data[:, 1].detach().numpy(), label='True trajectory')
@@ -211,8 +236,7 @@ def save_2d_and_actual_vs_predicted(x_data, x_pred, data_type, hidden_dim, n_sam
     # plt.grid()
     plt.savefig(f"{save_path}/{file_suffix}_actual_vs_predict.png")
     plt.close()
-    file_suffix = f"{data_type}_hidden_dim_{hidden_dim}_samples_{n_samples}_epochs_{epochs}"
-    
+    file_suffix = f"{data_type}_hidden_dim_{hidden_dim}_samples_{n_samples}_epochs_{epochs}" 
 
 def return_numerical_validation(x_data, x_pred, data_type, hidden_dim, n_samples, epochs, save_path):
     slope, intercept, r_value, _, _ = linregress(x_data.flatten().detach().numpy(), x_pred.flatten().detach().numpy())
@@ -366,14 +390,14 @@ for n_samples, hidden_dim, learning_rate, epochs in zip(n_samples_list, hidden_d
     # train 잔차 분포표
     plot_radius_deviation_histogram(x_train, x_pred_train_best, 'Train', hidden_dim, n_samples, epochs, save_path)
     # train 데이터의 2D 그래프와 Actual vs Predicted Plot 저장
-    save_2d_and_actual_vs_predicted(x_train, x_pred_train_best, 'Train', hidden_dim, n_samples, epochs, save_path)
+    save_2d_and_actual_vs_predicted_train(x_train, x_pred_train_best, 'Train', hidden_dim, n_samples, epochs, save_path)
     
     # test 반지름 잔차 컨투어
     # save_2d_radius_difference_contour_fixed(x_test, x_pred_test_best, 'Test', hidden_dim, n_samples, epochs, save_path)
     # test 잔차 분포표
     plot_radius_deviation_histogram(x_test, x_pred_test_best, 'Test', hidden_dim, n_samples, epochs, save_path)
     # test 데이터의 2D 그래프와 Actual vs Predicted Plot 저장
-    save_2d_and_actual_vs_predicted(x_test, x_pred_test_best, 'Test', hidden_dim, n_samples, epochs, save_path)
+    save_2d_and_actual_vs_predicted_test(x_test, x_pred_test_best, 'Test', hidden_dim, n_samples, epochs, save_path)
     
     # 수치 검증 결과를 CSV로 저장 (훈련 데이터)
     r_squared_train, mean_abs_rel_residual_train, max_abs_rel_residual_train =return_numerical_validation(x_train, x_pred_train_best, 'Train', hidden_dim, n_samples, epochs, save_path_csv)
