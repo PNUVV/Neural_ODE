@@ -1,45 +1,64 @@
-from torchdiffeq import odeint
-from torch import nn
-import os
-import matplotlib.pyplot as plt
-from scipy.stats import linregress
-from sklearn.metrics import mean_absolute_error
-import numpy as np
 from pyDOE import lhs
 import torch
+import os
+from torch import nn
+from torchdiffeq import odeint
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.stats import linregress
 import pandas as pd
-import copy
-from pandas import DataFrame
+from sklearn.metrics import mean_absolute_error, max_error
+from prettytable import PrettyTable
 import datetime
-import re
-from scipy.interpolate import griddata
-
+import copy
 
 ##########################################################################################################################
-#2023 0820 15:48 update
+#2023 0821 01:45 민준 update
 n_samples = 1000
-num_layers = 2
+num_layers = 3 # 실제 레이어의 수. 코드의 for문에서 -1을 이미 적용함
 hidden_dim = 32
 learning_rate = 0.005
 epochs = 100
-
+batch_size= 70
+model_try=2
+min_epoch = 50 # model당 최소 epoch. 해당 값 이전까지는 stop하지않음
+ReLU_On = False # True 적용시 레이어의 ReLU 활성화
+cuda_On = False # cuDNN 설치 전 까지 False 사용
+patience = 30 #이 epoch동안 val_loss 기록이 단 한 번도 개선되지 않으면 iteration을 종료
 ##########################################################################################################################
 
-# device = torch.device('cuda')
-# device = torch.device('cpu')
-# print(f'Using device: {device}')
+#쿠다 설정 cpu가 디폴트
+use_cuda = torch.cuda.is_available()
+device = torch.device('cuda' if cuda_On else 'cpu')
+print(f'Using device: {device}')
+print("can use cuda" if use_cuda else "can't use cuda")
 
-def train_ode_model(x_data, t_data, hidden_dim,num_layers, learning_rate, epochs):
-    # Neural ODE Model Definition
+# Latin Hypercube Design (LHD) sample generation
+lhd_samples = lhs(2, samples=n_samples)
+t_lhd = torch.tensor(np.sort(lhd_samples[:, 0]) * 2 * np.pi, dtype=torch.float32)
+x_lhd = torch.cat((torch.sin(t_lhd).reshape(-1, 1), torch.cos(t_lhd).reshape(-1, 1)), dim=1)
+
+# Data splitting
+train_size = int(0.7 * len(x_lhd))
+val_size = int(0.15 * len(x_lhd))
+x_train = x_lhd[:train_size]
+t_train = t_lhd[:train_size]
+x_val = x_lhd[train_size:train_size + val_size]
+t_val = t_lhd[train_size:train_size + val_size]
+x_test = x_lhd[train_size + val_size:]
+t_test = t_lhd[train_size + val_size:]
+
+
+def train_ode_model(hidden_dim,num_layers, learning_rate, epochs):
     class ODEFunc(nn.Module):
         def __init__(self, class_num_layers, class_hidden_dim):
             super(ODEFunc, self).__init__()
             layers = []
             layers.append(nn.Linear(2, class_hidden_dim))
-            for _ in range(class_num_layers):
-                layers.append(nn.ELU())
+            for _ in range(class_num_layers-1):
+                layers.append(nn.ReLU() if ReLU_On else nn.ELU())
                 layers.append(nn.Linear(class_hidden_dim, class_hidden_dim))
-            layers.append(nn.ELU())
+            layers.append(nn.ReLU() if ReLU_On else nn.ELU())
             layers.append(nn.Linear(class_hidden_dim, 2))
             self.net = nn.Sequential(*layers)
             self.nfe = 0
@@ -48,104 +67,75 @@ def train_ode_model(x_data, t_data, hidden_dim,num_layers, learning_rate, epochs
             self.nfe += 1
             return self.net(x)
     
+
     start_time = datetime.datetime.now()
-    
 
-
+    # Neural ODE definition
     func = ODEFunc(num_layers,hidden_dim)
+   
     optimizer = torch.optim.Adam(func.parameters(), lr=learning_rate)
-    criterion = nn.MSELoss()
+    # optimizer = torch.optim.Adam(func.parameters(), lr=0.0035)
+    # optimizer = torch.optim.AdamW(func.parameters(), lr=0.004, betas=(0.9, 0.999), eps=1e-08, weight_decay=0.03, amsgrad=False)
 
-    # Training Loop
+    criterion = nn.MSELoss()
+    best_loss = float(5) # 임의 정의
+
     losses = []
+    val_losses=[]
     for epoch in range(epochs):
         optimizer.zero_grad()
-        x_pred = odeint(func, x_data[0], t_data).squeeze()
-        loss = criterion(x_pred, x_data)
-        loss.backward()
+        func.train()
+        for batch_start in range(0, train_size, batch_size):
+            batch_x_train = x_train[batch_start:batch_start+batch_size]
+            batch_t_train = t_train[batch_start:batch_start+batch_size]
+            batch_x_pred_train = odeint(func, batch_x_train[0], batch_t_train).squeeze()
+            loss = criterion(batch_x_pred_train, batch_x_train)
+            loss.backward()
         optimizer.step()
+        
+        func.eval() # 모델을 평가 모드로 설정
+        with torch.no_grad():
+            x_pred_val = odeint(func, x_val[0], t_val).squeeze()
+            val_loss = criterion(x_pred_val, x_val)
+            val_losses.append(val_loss.item())
         losses.append(loss.item())
+    
+        if val_loss < best_loss:
+            best_loss = val_loss
+            counter = 0
+            torch.save(func.state_dict(), 'best_model.pt')  # Save the best model
+        else:
+            counter += 1
+
+        if epoch>min_epoch:
+            if counter >= patience:
+                print(f"Early stopping at epoch {epoch}")
+                break
+    
         if epoch % 10 == 0:
-            print("Epoch: {:3} | Loss: {:.9f} |".format(epoch, loss.item()))
-
-
+            print("Epoch: {:3} | Loss: {:.9f} | Val Loss: {:.9f}".format(epoch, loss.item(), val_loss.item()))
+    
     end_time = datetime.datetime.now()
     elapsed_time = end_time - start_time
     print(f'Training finished. Elapsed Time: {elapsed_time}')
-    return func, losses
-
-
-def plot_and_save_graph(x_data, x_pred, title, save_path):
-    """
-    Plot the true and predicted trajectory and save the plot to a file.
-
-    :param x_data: Ground truth data
-    :param x_pred: Predicted data
-    :param title: Title of the plot
-    :param save_path: Path to save the plot
-    """
-    plt.plot(x_data[:, 0].detach().numpy(), x_data[:, 1].detach().numpy(), label='True trajectory')
-    plt.plot(x_pred[:, 0].detach().numpy(), x_pred[:, 1].detach().numpy(), label='Predicted trajectory')
-    plt.legend()
-    plt.title(title)
-    plt.xlabel('X Position')
-    plt.ylabel('Y Position')
-    plt.savefig(save_path)
-    plt.close() # Close the plot to avoid displaying it in the notebook
-
-# This function will also be used inside the "train_ode_models" function.    
-
-def numerical_validation(x_data, x_pred):
-    """
-    Perform numerical validation on the predicted data.
-
-    :param x_data: Ground truth data
-    :param x_pred: Predicted data
-    :return: r_squared, mean_abs_rel_residual, max_abs_rel_residual
-    """
-    slope, intercept, r_value, _, _ = linregress(x_data.flatten().detach().numpy(), x_pred.flatten().detach().numpy())
-    r_squared = r_value**2
-    mean_abs_rel_residual = mean_absolute_error(x_data.detach().numpy(), x_pred.detach().numpy()) / (x_data.abs().mean())
-    max_abs_rel_residual = max(np.max(np.abs(x_data.detach().numpy() - x_pred.detach().numpy()), axis=0) / x_data.abs().max())
     
-    return r_squared, mean_abs_rel_residual, max_abs_rel_residual
+    return func, losses, val_losses
+    
+
+# with torch.no_grad():
+#             for name, param in func.named_parameters(): 
+#                 print(f"{name}: {param.data}")# 레이어의 weight와 bias 출력
+
 
 def train_ode_models(n_samples, hidden_dim,num_layers, learning_rate, epochs, save_path):
-    """
-    Train ODE models for different epochs and save the results.
-
-    :param n_samples: Number of samples
-    :param hidden_dim: Hidden dimension size
-    :param learning_rate: Learning rate
-    :param epochs_list: List of epochs for training
-    :param save_path: Path to save the results
-    :return: best_func, x_train, t_train, x_test, t_test, max_r_squared_model
-    """
-    # Latin Hypercube Design (LHD) sample generation
-    lhd_samples = lhs(2, samples=n_samples)
-    t_lhd = torch.tensor(np.sort(lhd_samples[:, 0]) * 2 * np.pi, dtype=torch.float32)
-    x_lhd = torch.cat((torch.sin(t_lhd).reshape(-1, 1), torch.cos(t_lhd).reshape(-1, 1)), dim=1)
-
-    # Data splitting
-    train_size = int(0.7 * len(x_lhd))
-    val_size = int(0.15 * len(x_lhd))
-    
-    x_train = x_lhd[:train_size]
-    t_train = t_lhd[:train_size]
-    
-    x_val = x_lhd[train_size:train_size + val_size]
-    t_val = t_lhd[train_size:train_size + val_size]
-    
-    x_test = x_lhd[train_size + val_size:]
-    t_test = t_lhd[train_size + val_size:]
 
     best_func = None
     best_r_squared = -float('inf') # Initialize with negative infinity
     validation_results = pd.DataFrame(columns=['Epochs', 'Hidden_Dim', 'Samples', 'Data_Type', 'R_Squared', 'Mean_Abs_Rel_Residual', 'Max_Abs_Rel_Residual'])
 
     # Model selection and result saving logic
-    for idx in range(5):
-        func, losses = train_ode_model(x_train, t_train, hidden_dim,num_layers, learning_rate, epochs) # Function to be defined
+    for idx in range(model_try):
+        func, losses, val_losses = train_ode_model(hidden_dim,num_layers, learning_rate, epochs) # Function to be defined
 
         x_pred_val = odeint(func, x_val[0], t_val).squeeze() # odeint to be defined
         r_squared, mean_abs_rel_residual, max_abs_rel_residual = numerical_validation(x_val, x_pred_val)
@@ -157,34 +147,24 @@ def train_ode_models(n_samples, hidden_dim,num_layers, learning_rate, epochs, sa
         if r_squared > best_r_squared:
             best_r_squared = r_squared
             best_func = copy.deepcopy(func)
+    
+        plt.plot(losses,label='Train Losses')
+        plt.plot(val_losses,label='Validation Losses')
+        plt.legend()
+        plt.title('Train Loss vs Validation Loss (MSE)')
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss')
+        plt.savefig(f"{save_path}/Train vs Validation_loss_idx_{idx}.png")
+        plt.close()
+    
+    # 08/21 01:10 나머지 그래프도 idx따라 다 뽑아야할지 고민. 현재는 loss를 제외하고는 best만 추출 
 
-    plt.plot(losses)
-    plt.title('Training Loss (MSE)')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.savefig(f"{save_path}/loss_{hidden_dim}_{n_samples}_{idx}.png")
-    plt.close()
     # Save CSV
     validation_results.to_csv(f"{save_path}/validation_results_{hidden_dim}_{n_samples}.csv", index=False)
     max_r_squared_model = validation_results['R_Squared'].idxmax()
 
-    return best_func, x_train, t_train, x_test, t_test, max_r_squared_model
+    return best_func, max_r_squared_model
 
-# The functions "train_ode_model" and "odeint" are to be defined as per the user's ODE model and training procedure.
-
-
-def save_loss_and_validation(losses, validation_results, save_path, hidden_dim,n_samples,idx):
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
-    ax1.plot(losses)
-    ax1.set_title('Training Loss (MSE)')
-    ax1.set_xlabel('Epoch')
-    ax1.set_ylabel('Loss')
-    ax2.plot(validation_results['Epochs'], validation_results['R_Squared'])
-    ax2.set_title('R_Squared Validation')
-    ax2.set_xlabel('Epoch')
-    ax2.set_ylabel('R_Squared')
-    plt.savefig(f"{save_path}/loss_and_validation_{hidden_dim}_{n_samples}_{idx}.png")
-    plt.close()
 
 def save_2d_and_actual_vs_predicted_train(x_data, x_pred, data_type, hidden_dim, n_samples, epochs, save_path):
     file_suffix = f"{data_type}"
@@ -209,8 +189,8 @@ def save_2d_and_actual_vs_predicted_train(x_data, x_pred, data_type, hidden_dim,
     # plt.grid()
     plt.savefig(f"{save_path}/{file_suffix}_actual_vs_predict.png")
     plt.close()
-    file_suffix = f"{data_type}_hidden_dim_{hidden_dim}_samples_{n_samples}_epochs_{epochs}"
     
+
 def save_2d_and_actual_vs_predicted_test(x_data, x_pred, data_type, hidden_dim, n_samples, epochs, save_path):
     file_suffix = f"{data_type}"
     # 2D Motion Plot
@@ -236,90 +216,13 @@ def save_2d_and_actual_vs_predicted_test(x_data, x_pred, data_type, hidden_dim, 
     # plt.grid()
     plt.savefig(f"{save_path}/{file_suffix}_actual_vs_predict.png")
     plt.close()
-    file_suffix = f"{data_type}_hidden_dim_{hidden_dim}_samples_{n_samples}_epochs_{epochs}" 
+   
 
-def return_numerical_validation(x_data, x_pred, data_type, hidden_dim, n_samples, epochs, save_path):
-    slope, intercept, r_value, _, _ = linregress(x_data.flatten().detach().numpy(), x_pred.flatten().detach().numpy())
-    r_squared = r_value**2
-    mean_abs_rel_residual = mean_absolute_error(x_data.detach().numpy(), x_pred.detach().numpy()) / (x_data.abs().mean())
-    max_abs_rel_residual = max(np.max(np.abs(x_data.detach().numpy() - x_pred.detach().numpy()), axis=0) / x_data.abs().max())
-
-    return r_squared, mean_abs_rel_residual, max_abs_rel_residual   
 
 def ensure_list(*values):
     max_length = max(len(value) if isinstance(value, list) else 1 for value in values)
     return [[value] * max_length if not isinstance(value, list) else value * (max_length // len(value)) for value in values]
 
-# contour는 보류
-# def save_2d_radius_difference_contour_fixed(x_data, x_pred, data_type, hidden_dim, n_samples, epochs, save_path):
-    
-    
-#     # Calculate the radius for actual and predicted data
-#     # actual_radius = torch.sqrt(x_data[:, 0]**2 + x_data[:, 1]**2)
-#     # pred_radius = torch.sqrt(x_pred[:, 0]**2 + x_pred[:, 1]**2)
-  
-
-#     xx, yy = torch.meshgrid(torch.linspace(x_data[:, 0].min(), x_data[:, 0].max(), 1000),
-#                         torch.linspace(x_data[:, 1].min(), x_data[:, 1].max(), 1000),
-#                         indexing='ij')
-
-
-#     # # Calculate the difference in radius
-#     # radius_difference = actual_radius - pred_radius
-#     radius_difference = torch.sqrt(x_pred[:, 0]**2 + x_pred[:, 1]**2)-1
-
-    
-#     # Interpolate radius_difference on the grid using detached numpy arrays
-#     from scipy.interpolate import griddata
-#     zz = griddata((x_data[:, 0].detach().numpy(), x_data[:, 1].detach().numpy()), radius_difference.detach().numpy(), (xx.numpy(), yy.numpy()), method='linear')
-
-#     # Plotting the contour of radius difference
-#     plt.contourf(xx.numpy(), yy.numpy(), zz, levels=100, cmap="viridis")
-
-#     # Plotting the actual vs predicted data
-#     plt.plot(x_data[:, 0].detach().numpy(), x_data[:, 1].detach().numpy(), label='True trajectory')
-#     plt.plot(x_pred[:, 0].detach().numpy(), x_pred[:, 1].detach().numpy(), label=f'{data_type} trajectory')
-#     plt.legend()
-#     plt.title(f'2D Motion Radius Difference Contour\nHidden Dim: {hidden_dim}, Samples: {n_samples}, Epochs: {epochs}')
-#     plt.xlabel('X Position')
-#     plt.ylabel('Y Position')
-
-#     # Saving the plot
-#     plot_path = os.path.join(save_path, f'{data_type}_radius_difference_contour.png')
-#     plt.savefig(plot_path)
-#     plt.close() # Close the plot to avoid displaying it in the notebook
-
-# def save_2d_radius_difference_contour_fixed(x_data, x_pred, data_type, hidden_dim, n_samples, epochs, save_path):
-#     # 실제 경로와 예측한 경로의 반지름 계산
-#     actual_radius = torch.sqrt(x_data[:, 0]**2 + x_data[:, 1]**2)
-#     pred_radius = torch.sqrt(x_pred[:, 0]**2 + x_pred[:, 1]**2)
-
-#     # 반지름 차이 계산
-#     radius_difference = actual_radius - pred_radius
-
-#     # 컨투어 플롯을 위한 격자 데이터 생성
-#     x = np.linspace(x_data[:, 0].min(), x_data[:, 0].max(), 100)
-#     y = np.linspace(x_data[:, 1].min(), x_data[:, 1].max(), 100)
-#     X, Y = np.meshgrid(x, y)
-
-#     # 격자 위에 반지름 차이 보간
-#     zz = griddata((x_data[:, 0].detach().numpy(), x_data[:, 1].detach().numpy()), radius_difference.detach().numpy(), (X, Y), method='linear')
-
-#     # 반지름 차이의 컨투어 플롯 생성
-#     plt.contourf(X, Y, zz, levels=100, cmap="viridis")
-
-#     # 실제 경로와 예측한 경로 그래프 생성
-#     plt.plot(x_data[:, 0].detach().numpy(), x_data[:, 1].detach().numpy(), label='True trajectory')
-#     plt.plot(x_pred[:, 0].detach().numpy(), x_pred[:, 1].detach().numpy(), label=f'{data_type} trajectory')
-#     plt.legend()
-#     plt.title(f'2D Motion Radius Difference Contour\nHidden Dim: {hidden_dim}, Samples: {n_samples}, Epochs: {epochs}')
-#     plt.xlabel('X Position')
-#     plt.ylabel('Y Position')
-
-#     # 플롯 저장
-#     plot_path = os.path.join(save_path, f'{data_type}_radius_difference_contour.png')
-#     plt.savefig(plot_path)
-#     plt.close()  # 플롯을 노트북에 표시하지 않기 위해 닫아줍니다.
 
 def plot_radius_deviation_histogram(x_data, x_pred, data_type, hidden_dim, n_samples, epochs, save_path):
     # Calculate the radius for actual and predicted data
@@ -346,7 +249,42 @@ def plot_radius_deviation_histogram(x_data, x_pred, data_type, hidden_dim, n_sam
     plt.savefig(plot_path)
     plt.close() # Close the plot to avoid displaying it in the notebook
 
-# You can use this function in your existing code to visualize the distribution of radius deviation between actual and predicted trajectory
+def return_numerical_validation(x_data, x_pred, data_type, hidden_dim, n_samples, epochs, save_path):
+    slope, intercept, r_value, _, _ = linregress(x_data.flatten().detach().numpy(), x_pred.flatten().detach().numpy())
+    r_squared = r_value**2
+    mean_abs_rel_residual = mean_absolute_error(x_data.detach().numpy(), x_pred.detach().numpy()) / (x_data.abs().mean())
+    max_abs_rel_residual = max(np.max(np.abs(x_data.detach().numpy() - x_pred.detach().numpy()), axis=0) / x_data.abs().max())
+
+    return r_squared, mean_abs_rel_residual, max_abs_rel_residual   
+
+def numerical_validation(x_data, x_pred):
+    """
+    Perform numerical validation on the predicted data.
+
+    :param x_data: Ground truth data
+    :param x_pred: Predicted data
+    :return: r_squared, mean_abs_rel_residual, max_abs_rel_residual
+    """
+    slope, intercept, r_value, _, _ = linregress(x_data.flatten().detach().numpy(), x_pred.flatten().detach().numpy())
+    r_squared = r_value**2
+    mean_abs_rel_residual = mean_absolute_error(x_data.detach().numpy(), x_pred.detach().numpy()) / (x_data.abs().mean())
+    max_abs_rel_residual = max(np.max(np.abs(x_data.detach().numpy() - x_pred.detach().numpy()), axis=0) / x_data.abs().max())
+    
+    return r_squared, mean_abs_rel_residual, max_abs_rel_residual
+
+def save_best_model_draw(save_path, x_pred_test_best, x_pred_val_best, x_pred_train_best):
+    # 2D Motion Plot
+    plt.plot(x_lhd[:, 0].detach().numpy(), x_lhd[:, 1].detach().numpy(), label='True trajectory')
+    plt.plot(x_pred_train_best[:, 0].detach().numpy(), x_pred_train_best[:, 1].detach().numpy(), label='Neural ODE approximation')
+    plt.plot(x_pred_val_best[:, 0].detach().numpy(), x_pred_val_best[:, 1].detach().numpy(), label='Predicted validation trajectory')
+    plt.plot(x_pred_test_best[:, 0].detach().numpy(), x_pred_test_best[:, 1].detach().numpy(), label='Predicted test trajectory')
+    plt.legend()
+    plt.xlabel('X Position')
+    plt.ylabel('Y Position')
+    plt.title('Best Model 2D Motion Data Prediction')
+    plt.savefig(f"{save_path}/best_model_draw.png")
+    plt.close()
+
 
 
 n_samples_list, hidden_dim_list, learning_rate_list, epochs_list = ensure_list(n_samples, hidden_dim,learning_rate, epochs)
@@ -375,30 +313,24 @@ for n_samples, hidden_dim, learning_rate, epochs in zip(n_samples_list, hidden_d
         os.makedirs(save_path2)
 
     # 최적의 모델 훈련
-    
-    best_func, x_train, t_train, x_test, t_test, max_r_squared_model = train_ode_models(n_samples, hidden_dim,num_layers, learning_rate, epochs, save_path)
+    best_func, max_r_squared_model = train_ode_models(n_samples, hidden_dim,num_layers, learning_rate, epochs, save_path)
     x_pred_test_best = odeint(best_func, x_test[0], t_test).squeeze()
+    x_pred_val_best = odeint(best_func, x_val[0], t_val).squeeze()
     x_pred_train_best = odeint(best_func, x_train[0], t_train).squeeze()
     print(f"Training with n_samples={n_samples}, hidden_dim={hidden_dim}, lr={learning_rate}, epochs={epochs}")
-    
-    # 훈련 데이터의 2D 그래프와 Actual vs Predicted Plot 저장
-    
-    # save_2d_and_actual_vs_predicted(x_train, x_pred_train_best, 'train', hidden_dim, n_samples, epochs, save_path)
-
-    # train 반지름 잔차 컨투어
-    # save_2d_radius_difference_contour_fixed(x_train, x_pred_train_best, 'Train', hidden_dim, n_samples, epochs, save_path)
     # train 잔차 분포표
     plot_radius_deviation_histogram(x_train, x_pred_train_best, 'Train', hidden_dim, n_samples, epochs, save_path)
     # train 데이터의 2D 그래프와 Actual vs Predicted Plot 저장
     save_2d_and_actual_vs_predicted_train(x_train, x_pred_train_best, 'Train', hidden_dim, n_samples, epochs, save_path)
     
-    # test 반지름 잔차 컨투어
-    # save_2d_radius_difference_contour_fixed(x_test, x_pred_test_best, 'Test', hidden_dim, n_samples, epochs, save_path)
     # test 잔차 분포표
     plot_radius_deviation_histogram(x_test, x_pred_test_best, 'Test', hidden_dim, n_samples, epochs, save_path)
     # test 데이터의 2D 그래프와 Actual vs Predicted Plot 저장
     save_2d_and_actual_vs_predicted_test(x_test, x_pred_test_best, 'Test', hidden_dim, n_samples, epochs, save_path)
     
+    # 최종 그래프
+    save_best_model_draw(save_path, x_pred_test_best, x_pred_val_best, x_pred_train_best)
+
     # 수치 검증 결과를 CSV로 저장 (훈련 데이터)
     r_squared_train, mean_abs_rel_residual_train, max_abs_rel_residual_train =return_numerical_validation(x_train, x_pred_train_best, 'Train', hidden_dim, n_samples, epochs, save_path_csv)
     
