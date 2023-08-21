@@ -12,18 +12,18 @@ import datetime
 import copy
 
 ############################################################################################################################
-#2023-08/21 19:50 민준 update
+#2023-08/22 01:59 민준 update
 n_samples = 1000
 num_layers = 3 # 실제 레이어의 수. 코드의 for문에서 -1을 이미 적용함
 hidden_dim = 32
 learning_rate = 0.005
 epochs = 110
 batch_size= 70  # 배치 사이즈
-model_try= 5   # 해당 값으로 트라이할 모델 수
-min_epoch = 80 # model당 최소 epoch. 해당 값 이전까지는 stop하지않음
+model_try= 3   # 해당 값으로 트라이할 모델 수
+min_epoch = 77 # model당 최소 epoch. 해당 값 이전까지는 stop하지않음
 ReLU_On = False # True 적용시 레이어의 ReLU 활성화
 cuda_On = False # cuDNN 설치 전까지 False 사용. 혹시 사용할 수도 있으니 다들 사전에 설치하면 좋겠음
-patience = 4 #이 epoch동안 val_loss 기록이 단 한 번도 개선되지 않으면 iteration을 종료
+patience = 1 #이 epoch동안 val_loss 기록이 단 한 번도 개선되지 않으면 iteration을 종료
 ############################################################################################################################
 # Ex)
 # n_samples = 1000
@@ -33,7 +33,7 @@ patience = 4 #이 epoch동안 val_loss 기록이 단 한 번도 개선되지 않
 # epochs = 110
 # batch_size= 70  # 배치 사이즈
 # model_try= 5   # 해당 값으로 트라이할 모델 수
-# min_epoch = 90 # model당 최소 epoch. 해당 값 이전까지는 stop하지않음
+# min_epoch = 80 # model당 최소 epoch. 해당 값 이전까지는 stop하지않음
 # ReLU_On = False # True 적용시 레이어의 ReLU 활성화
 # cuda_On = False # cuDNN 설치 전까지 False 사용. 혹시 사용할 수도 있으니 다들 사전에 설치하면 좋겠음
 # patience = 4 #이 epoch동안 val_loss 기록이 단 한 번도 개선되지 않으면 iteration을 종료
@@ -132,31 +132,40 @@ def train_ode_model(hidden_dim,num_layers, learning_rate, epochs):
     
     return func, losses, val_losses
     
-# with torch.no_grad():
-#             for name, param in func.named_parameters(): 
-#                 print(f"{name}: {param.data}")# 레이어의 weight와 bias 출력
 
 def train_ode_models(n_samples, hidden_dim,num_layers, learning_rate, epochs, save_path):
 
     best_func = None
     best_r_squared = -float('inf') # Initialize with negative infinity
-    validation_results = pd.DataFrame(columns=['Epochs', 'Hidden_Dim', 'Samples', 'Data_Type', 'R_Squared', 'Mean_Abs_Rel_Residual', 'Max_Abs_Rel_Residual'])
-
+    validation_results = pd.DataFrame(columns=['Samples', 'Hidden_Dim', 'Learning_Rate', 'Epochs', 'Data_Type', 'R_Squared', 'Mean_Abs_Rel_Residual', 'Max_Abs_Rel_Residual'])
+    results_df_train = pd.DataFrame(columns=['Samples', 'Hidden_Dim', 'Learning_Rate', 'Epochs', 'Data_Type', 'R_Squared', 'Mean_Abs_Rel_Residual', 'Max_Abs_Rel_Residual'])
+    results_df_test = pd.DataFrame(columns=['Samples', 'Hidden_Dim', 'Learning_Rate', 'Epochs', 'Data_Type', 'R_Squared', 'Mean_Abs_Rel_Residual', 'Max_Abs_Rel_Residual'])
+    
     # Model selection and result saving logic
     for idx in range(model_try):
         print(f'Model number: {idx}')
+        
         func, losses, val_losses = train_ode_model(hidden_dim,num_layers, learning_rate, epochs) # Function to be defined
 
+        x_pred_train = odeint(func, x_train[0], t_train).squeeze() # odeint to be defined
+        r_squared_train, mean_abs_rel_residual_train, max_abs_rel_residual_train = numerical_validation(x_train, x_pred_train)
         x_pred_val = odeint(func, x_val[0], t_val).squeeze() # odeint to be defined
-        r_squared, mean_abs_rel_residual, max_abs_rel_residual = numerical_validation(x_val, x_pred_val)
+        r_squared_val, mean_abs_rel_residual_val, max_abs_rel_residual_val = numerical_validation(x_val, x_pred_val)
+        x_pred_test = odeint(func, x_test[0], t_test).squeeze() # odeint to be defined
+        r_squared_test, mean_abs_rel_residual_test, max_abs_rel_residual_test = numerical_validation(x_test, x_pred_test)
 
         # Save validation results
-        validation_results.loc[idx] = [epochs, hidden_dim, n_samples, 'Validation', r_squared, mean_abs_rel_residual, max_abs_rel_residual]
-
+        results_df_train.loc[idx] = [n_samples, hidden_dim, learning_rate, epochs, 'Train', r_squared_train, mean_abs_rel_residual_train, max_abs_rel_residual_train]
+        validation_results.loc[idx] = [n_samples, hidden_dim, learning_rate, epochs, 'Validation', r_squared_val, mean_abs_rel_residual_val, max_abs_rel_residual_val]
+        results_df_test.loc[idx] = [n_samples, hidden_dim, learning_rate, epochs, 'Test', r_squared_test, mean_abs_rel_residual_test, max_abs_rel_residual_test]
+        
         # Select best model
-        if r_squared > best_r_squared:
-            best_r_squared = r_squared
+        if r_squared_val > best_r_squared:
+            best_r_squared = r_squared_val
             best_func = copy.deepcopy(func)
+            x_pred_test_best = x_pred_test
+            x_pred_val_best = x_pred_val
+            x_pred_train_best = x_pred_train
     
         plt.plot(losses,label='Train Losses')
         plt.legend()
@@ -188,10 +197,12 @@ def train_ode_models(n_samples, hidden_dim,num_layers, learning_rate, epochs, sa
     model_save = os.path.join(save_path,'best_model.pt')
     torch.save(best_func.state_dict(), model_save)  # Save the best model
     # Save CSV
+    results_df_train.to_csv(f"{save_path}/Train_results_{hidden_dim}_{n_samples}.csv", index=False)
     validation_results.to_csv(f"{save_path}/validation_results_{hidden_dim}_{n_samples}.csv", index=False)
+    results_df_test.to_csv(f"{save_path}/Test_results_{hidden_dim}_{n_samples}.csv", index=False)
     max_r_squared_model = validation_results['R_Squared'].idxmax()
 
-    return best_func, max_r_squared_model
+    return best_func, max_r_squared_model,x_pred_train_best,x_pred_val_best,x_pred_test_best
 
 
 def save_2d_and_actual_vs_predicted_train(x_data, x_pred, data_type, hidden_dim, n_samples, epochs, save_path):
@@ -340,9 +351,12 @@ save_path_csv2 = "csv"
 if not os.path.exists(save_path_csv2):
         os.makedirs(save_path_csv2)
 
+# with torch.no_grad():
+#             for name, param in best_func.named_parameters(): 
+#                 print(f"{name}: {param.data}")# 레이어의 weight와 bias 출력
+
 # 결과를 저장할 DataFrame 생성
-results_df_train = pd.DataFrame(columns=['N_Samples', 'Hidden_Dim', 'Learning_Rate', 'Epochs', 'Data_Type', 'R_Squared', 'Mean_Abs_Rel_Residual', 'Max_Abs_Rel_Residual'])
-results_df_test = pd.DataFrame(columns=['N_Samples', 'Hidden_Dim', 'Learning_Rate', 'Epochs', 'Data_Type', 'R_Squared', 'Mean_Abs_Rel_Residual', 'Max_Abs_Rel_Residual'])
+
 timestamp = datetime.datetime.now().strftime("%m-%d_%H%M")
 
 for n_samples, hidden_dim, learning_rate, epochs in zip(n_samples_list, hidden_dim_list, learning_rate_list, epochs_list):
@@ -352,15 +366,13 @@ for n_samples, hidden_dim, learning_rate, epochs in zip(n_samples_list, hidden_d
     # 디렉토리가 없으면 생성
     if not os.path.exists(save_path):
         os.makedirs(save_path)
-    if not os.path.exists(save_path2):
-        os.makedirs(save_path2)
+    # if not os.path.exists(save_path2):
+    #     os.makedirs(save_path2)
 
     # 최적의 모델 훈련
-    best_func, max_r_squared_model = train_ode_models(n_samples, hidden_dim,num_layers, learning_rate, epochs, save_path)
-    x_pred_test_best = odeint(best_func, x_test[0], t_test).squeeze()
-    x_pred_val_best = odeint(best_func, x_val[0], t_val).squeeze()
-    x_pred_train_best = odeint(best_func, x_train[0], t_train).squeeze()
-    print(f"Training with n_samples={n_samples}, hidden_dim={hidden_dim}, lr={learning_rate}, epochs={epochs}")
+    best_func, max_r_squared_model,x_pred_train_best,x_pred_val_best,x_pred_test_best = train_ode_models(n_samples, hidden_dim,num_layers, learning_rate, epochs, save_path)
+    print(f"Training with n_samples={n_samples}, hidden_dim={hidden_dim}, lr={learning_rate}, epochs={epochs},best model idx={max_r_squared_model}")
+    
     # train
     plot_radius_deviation_histogram(x_train, x_pred_train_best, 'Train', hidden_dim, n_samples, epochs, save_path)
     save_2d_and_actual_vs_predicted_train(x_train, x_pred_train_best, 'Train', hidden_dim, n_samples, epochs, save_path)
@@ -375,16 +387,3 @@ for n_samples, hidden_dim, learning_rate, epochs in zip(n_samples_list, hidden_d
     
     # 최종 그래프
     save_best_model_draw(save_path, x_pred_test_best, x_pred_val_best, x_pred_train_best)
-
-    # 수치 검증 결과를 CSV로 저장 (훈련 데이터)
-    r_squared_train, mean_abs_rel_residual_train, max_abs_rel_residual_train =return_numerical_validation(x_train, x_pred_train_best, 'Train', hidden_dim, n_samples, epochs, save_path_csv)
-    # 수치 검증 결과를 CSV로 저장 (테스트 데이터)
-    r_squared_test, mean_abs_rel_residual_test, max_abs_rel_residual_test =return_numerical_validation(x_test, x_pred_test_best, 'Test', hidden_dim, n_samples, epochs, save_path_csv)
-    # 결과 DataFrame에 추가 (훈련 데이터)
-    results_df_train.loc[len(results_df_train)] = [n_samples, hidden_dim, learning_rate, epochs, 'Train', r_squared_train, mean_abs_rel_residual_train.item(), max_abs_rel_residual_train.item()]
-    # 결과 DataFrame에 추가 (테스트 데이터)
-    results_df_test.loc[len(results_df_test)] = [n_samples, hidden_dim, learning_rate, epochs, 'Test', r_squared_test, mean_abs_rel_residual_test.item(), max_abs_rel_residual_test.item()]
-
-# 전체 결과를 CSV 파일로 저장
-results_df_train.to_csv(f"{save_path2}/numerical_train.csv", index=False)
-results_df_test.to_csv(f"{save_path2}/numerical_test.csv", index=False)
