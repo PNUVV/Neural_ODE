@@ -12,26 +12,27 @@ from prettytable import PrettyTable
 import datetime
 import copy
 
-##########################################################################################################################
-#2023 0821 01:45 민준 update
+############################################################################################################################
+#2023 0821 18:05 민준 update
 n_samples = 1000
 num_layers = 3 # 실제 레이어의 수. 코드의 for문에서 -1을 이미 적용함
 hidden_dim = 32
 learning_rate = 0.005
-epochs = 100
-batch_size= 70
-model_try=2
-min_epoch = 50 # model당 최소 epoch. 해당 값 이전까지는 stop하지않음
+epochs = 110
+batch_size= 70  # 배치 사이즈
+model_try= 5   # 해당 값으로 트라이할 모델 수
+min_epoch = 90 # model당 최소 epoch. 해당 값 이전까지는 stop하지않음
 ReLU_On = False # True 적용시 레이어의 ReLU 활성화
-cuda_On = False # cuDNN 설치 전 까지 False 사용
-patience = 30 #이 epoch동안 val_loss 기록이 단 한 번도 개선되지 않으면 iteration을 종료
-##########################################################################################################################
+cuda_On = False # cuDNN 설치 전까지 False 사용. 혹시 사용할 수도 있으니 다들 사전에 설치하면 좋겠음
+patience = 4 #이 epoch동안 val_loss 기록이 단 한 번도 개선되지 않으면 iteration을 종료
+############################################################################################################################
 
 #쿠다 설정 cpu가 디폴트
 use_cuda = torch.cuda.is_available()
 device = torch.device('cuda' if cuda_On else 'cpu')
+print("you can use cuda" if use_cuda else "you can't use cuda")
 print(f'Using device: {device}')
-print("can use cuda" if use_cuda else "can't use cuda")
+
 
 # Latin Hypercube Design (LHD) sample generation
 lhd_samples = lhs(2, samples=n_samples)
@@ -74,7 +75,6 @@ def train_ode_model(hidden_dim,num_layers, learning_rate, epochs):
     func = ODEFunc(num_layers,hidden_dim)
    
     optimizer = torch.optim.Adam(func.parameters(), lr=learning_rate)
-    # optimizer = torch.optim.Adam(func.parameters(), lr=0.0035)
     # optimizer = torch.optim.AdamW(func.parameters(), lr=0.004, betas=(0.9, 0.999), eps=1e-08, weight_decay=0.03, amsgrad=False)
 
     criterion = nn.MSELoss()
@@ -103,7 +103,6 @@ def train_ode_model(hidden_dim,num_layers, learning_rate, epochs):
         if val_loss < best_loss:
             best_loss = val_loss
             counter = 0
-            torch.save(func.state_dict(), 'best_model.pt')  # Save the best model
         else:
             counter += 1
 
@@ -121,11 +120,9 @@ def train_ode_model(hidden_dim,num_layers, learning_rate, epochs):
     
     return func, losses, val_losses
     
-
 # with torch.no_grad():
 #             for name, param in func.named_parameters(): 
 #                 print(f"{name}: {param.data}")# 레이어의 weight와 bias 출력
-
 
 def train_ode_models(n_samples, hidden_dim,num_layers, learning_rate, epochs, save_path):
 
@@ -135,6 +132,7 @@ def train_ode_models(n_samples, hidden_dim,num_layers, learning_rate, epochs, sa
 
     # Model selection and result saving logic
     for idx in range(model_try):
+        print(f'Model number: {idx}')
         func, losses, val_losses = train_ode_model(hidden_dim,num_layers, learning_rate, epochs) # Function to be defined
 
         x_pred_val = odeint(func, x_val[0], t_val).squeeze() # odeint to be defined
@@ -154,11 +152,13 @@ def train_ode_models(n_samples, hidden_dim,num_layers, learning_rate, epochs, sa
         plt.title('Train Loss vs Validation Loss (MSE)')
         plt.xlabel('Epoch')
         plt.ylabel('Loss')
+        plt.yscale('log')
         plt.savefig(f"{save_path}/Train vs Validation_loss_idx_{idx}.png")
         plt.close()
     
     # 08/21 01:10 나머지 그래프도 idx따라 다 뽑아야할지 고민. 현재는 loss를 제외하고는 best만 추출 
-
+    model_save = os.path.join(save_path,'best_model.pt')
+    torch.save(best_func.state_dict(), model_save)  # Save the best model
     # Save CSV
     validation_results.to_csv(f"{save_path}/validation_results_{hidden_dim}_{n_samples}.csv", index=False)
     max_r_squared_model = validation_results['R_Squared'].idxmax()
@@ -186,7 +186,34 @@ def save_2d_and_actual_vs_predicted_train(x_data, x_pred, data_type, hidden_dim,
     plt.ylabel('Predicted')
     plt.legend()
     plt.title('Actual vs Predicted Plot')
-    # plt.grid()
+    plt.grid()
+    plt.savefig(f"{save_path}/{file_suffix}_actual_vs_predict.png")
+    plt.close()
+    
+
+def save_2d_and_actual_vs_predicted_val(x_data, x_pred, data_type, hidden_dim, n_samples, epochs, save_path):
+    file_suffix = f"{data_type}"
+    # 2D Motion Plot
+    plt.plot(x_data[:, 0].detach().numpy(), x_data[:, 1].detach().numpy(), label='True trajectory')
+    plt.plot(x_pred[:, 0].detach().numpy(), x_pred[:, 1].detach().numpy(), label='Validation trajectory')
+    plt.legend()
+    plt.xlabel('X Position')
+    plt.ylabel('Y Position')
+    plt.xlim(-1.4, -0.4)
+    plt.ylim(-0.35, 0.65)
+    plt.title('2D Motion')
+    plt.savefig(f"{save_path}/{file_suffix}_2D_motion.png")
+    plt.close()
+
+    # Actual vs Predicted Plot
+    plt.plot(x_data[:, 0].detach().numpy(), x_pred[:, 0].detach().numpy(), label='X Position')
+    plt.plot(x_data[:, 1].detach().numpy(), x_pred[:, 1].detach().numpy(), label='Y Position')
+    plt.plot(torch.linspace(-1, 1, 1000), torch.linspace(-1, 1, 1000), color='red', linewidth=1.2)
+    plt.xlabel('Actual')
+    plt.ylabel('Predicted')
+    plt.legend()
+    plt.title('Actual vs Predicted Plot')
+    plt.grid()
     plt.savefig(f"{save_path}/{file_suffix}_actual_vs_predict.png")
     plt.close()
     
@@ -195,7 +222,7 @@ def save_2d_and_actual_vs_predicted_test(x_data, x_pred, data_type, hidden_dim, 
     file_suffix = f"{data_type}"
     # 2D Motion Plot
     plt.plot(x_data[:, 0].detach().numpy(), x_data[:, 1].detach().numpy(), label='True trajectory')
-    plt.plot(x_pred[:, 0].detach().numpy(), x_pred[:, 1].detach().numpy(), label='Neural ODE approximation')
+    plt.plot(x_pred[:, 0].detach().numpy(), x_pred[:, 1].detach().numpy(), label='Test trajectory')
     plt.legend()
     plt.xlabel('X Position')
     plt.ylabel('Y Position')
@@ -213,11 +240,10 @@ def save_2d_and_actual_vs_predicted_test(x_data, x_pred, data_type, hidden_dim, 
     plt.ylabel('Predicted')
     plt.legend()
     plt.title('Actual vs Predicted Plot')
-    # plt.grid()
+    plt.grid()
     plt.savefig(f"{save_path}/{file_suffix}_actual_vs_predict.png")
     plt.close()
    
-
 
 def ensure_list(*values):
     max_length = max(len(value) if isinstance(value, list) else 1 for value in values)
@@ -258,13 +284,6 @@ def return_numerical_validation(x_data, x_pred, data_type, hidden_dim, n_samples
     return r_squared, mean_abs_rel_residual, max_abs_rel_residual   
 
 def numerical_validation(x_data, x_pred):
-    """
-    Perform numerical validation on the predicted data.
-
-    :param x_data: Ground truth data
-    :param x_pred: Predicted data
-    :return: r_squared, mean_abs_rel_residual, max_abs_rel_residual
-    """
     slope, intercept, r_value, _, _ = linregress(x_data.flatten().detach().numpy(), x_pred.flatten().detach().numpy())
     r_squared = r_value**2
     mean_abs_rel_residual = mean_absolute_error(x_data.detach().numpy(), x_pred.detach().numpy()) / (x_data.abs().mean())
@@ -285,10 +304,7 @@ def save_best_model_draw(save_path, x_pred_test_best, x_pred_val_best, x_pred_tr
     plt.savefig(f"{save_path}/best_model_draw.png")
     plt.close()
 
-
-
 n_samples_list, hidden_dim_list, learning_rate_list, epochs_list = ensure_list(n_samples, hidden_dim,learning_rate, epochs)
-
 save_path_csv = "results"
 if not os.path.exists(save_path_csv):
         os.makedirs(save_path_csv)
@@ -299,7 +315,6 @@ if not os.path.exists(save_path_csv2):
 # 결과를 저장할 DataFrame 생성
 results_df_train = pd.DataFrame(columns=['N_Samples', 'Hidden_Dim', 'Learning_Rate', 'Epochs', 'Data_Type', 'R_Squared', 'Mean_Abs_Rel_Residual', 'Max_Abs_Rel_Residual'])
 results_df_test = pd.DataFrame(columns=['N_Samples', 'Hidden_Dim', 'Learning_Rate', 'Epochs', 'Data_Type', 'R_Squared', 'Mean_Abs_Rel_Residual', 'Max_Abs_Rel_Residual'])
-
 timestamp = datetime.datetime.now().strftime("%m-%d_%H %M")
 
 for n_samples, hidden_dim, learning_rate, epochs in zip(n_samples_list, hidden_dim_list, learning_rate_list, epochs_list):
@@ -318,14 +333,16 @@ for n_samples, hidden_dim, learning_rate, epochs in zip(n_samples_list, hidden_d
     x_pred_val_best = odeint(best_func, x_val[0], t_val).squeeze()
     x_pred_train_best = odeint(best_func, x_train[0], t_train).squeeze()
     print(f"Training with n_samples={n_samples}, hidden_dim={hidden_dim}, lr={learning_rate}, epochs={epochs}")
-    # train 잔차 분포표
+    # train
     plot_radius_deviation_histogram(x_train, x_pred_train_best, 'Train', hidden_dim, n_samples, epochs, save_path)
-    # train 데이터의 2D 그래프와 Actual vs Predicted Plot 저장
     save_2d_and_actual_vs_predicted_train(x_train, x_pred_train_best, 'Train', hidden_dim, n_samples, epochs, save_path)
     
-    # test 잔차 분포표
+    # val
+    plot_radius_deviation_histogram(x_val, x_pred_val_best, "Validation", hidden_dim, n_samples, epochs, save_path)
+    save_2d_and_actual_vs_predicted_val(x_val, x_pred_val_best, "Validation", hidden_dim, n_samples, epochs, save_path)
+    
+    # test
     plot_radius_deviation_histogram(x_test, x_pred_test_best, 'Test', hidden_dim, n_samples, epochs, save_path)
-    # test 데이터의 2D 그래프와 Actual vs Predicted Plot 저장
     save_2d_and_actual_vs_predicted_test(x_test, x_pred_test_best, 'Test', hidden_dim, n_samples, epochs, save_path)
     
     # 최종 그래프
@@ -333,13 +350,10 @@ for n_samples, hidden_dim, learning_rate, epochs in zip(n_samples_list, hidden_d
 
     # 수치 검증 결과를 CSV로 저장 (훈련 데이터)
     r_squared_train, mean_abs_rel_residual_train, max_abs_rel_residual_train =return_numerical_validation(x_train, x_pred_train_best, 'Train', hidden_dim, n_samples, epochs, save_path_csv)
-    
     # 수치 검증 결과를 CSV로 저장 (테스트 데이터)
     r_squared_test, mean_abs_rel_residual_test, max_abs_rel_residual_test =return_numerical_validation(x_test, x_pred_test_best, 'Test', hidden_dim, n_samples, epochs, save_path_csv)
-    
     # 결과 DataFrame에 추가 (훈련 데이터)
     results_df_train.loc[len(results_df_train)] = [n_samples, hidden_dim, learning_rate, epochs, 'Train', r_squared_train, mean_abs_rel_residual_train.item(), max_abs_rel_residual_train.item()]
-
     # 결과 DataFrame에 추가 (테스트 데이터)
     results_df_test.loc[len(results_df_test)] = [n_samples, hidden_dim, learning_rate, epochs, 'Test', r_squared_test, mean_abs_rel_residual_test.item(), max_abs_rel_residual_test.item()]
 
