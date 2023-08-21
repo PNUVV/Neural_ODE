@@ -8,12 +8,11 @@ import matplotlib.pyplot as plt
 from scipy.stats import linregress
 import pandas as pd
 from sklearn.metrics import mean_absolute_error, max_error
-from prettytable import PrettyTable
 import datetime
 import copy
 
 ############################################################################################################################
-#2023 0821 18:05 민준 update
+#2023-08/21 19:50 민준 update
 n_samples = 1000
 num_layers = 3 # 실제 레이어의 수. 코드의 for문에서 -1을 이미 적용함
 hidden_dim = 32
@@ -21,10 +20,23 @@ learning_rate = 0.005
 epochs = 110
 batch_size= 70  # 배치 사이즈
 model_try= 5   # 해당 값으로 트라이할 모델 수
-min_epoch = 90 # model당 최소 epoch. 해당 값 이전까지는 stop하지않음
+min_epoch = 80 # model당 최소 epoch. 해당 값 이전까지는 stop하지않음
 ReLU_On = False # True 적용시 레이어의 ReLU 활성화
 cuda_On = False # cuDNN 설치 전까지 False 사용. 혹시 사용할 수도 있으니 다들 사전에 설치하면 좋겠음
 patience = 4 #이 epoch동안 val_loss 기록이 단 한 번도 개선되지 않으면 iteration을 종료
+############################################################################################################################
+# Ex)
+# n_samples = 1000
+# num_layers = 3 # 실제 레이어의 수. 코드의 for문에서 -1을 이미 적용함
+# hidden_dim = 32
+# learning_rate = 0.005
+# epochs = 110
+# batch_size= 70  # 배치 사이즈
+# model_try= 5   # 해당 값으로 트라이할 모델 수
+# min_epoch = 90 # model당 최소 epoch. 해당 값 이전까지는 stop하지않음
+# ReLU_On = False # True 적용시 레이어의 ReLU 활성화
+# cuda_On = False # cuDNN 설치 전까지 False 사용. 혹시 사용할 수도 있으니 다들 사전에 설치하면 좋겠음
+# patience = 4 #이 epoch동안 val_loss 기록이 단 한 번도 개선되지 않으면 iteration을 종료
 ############################################################################################################################
 
 #쿠다 설정 cpu가 디폴트
@@ -146,6 +158,22 @@ def train_ode_models(n_samples, hidden_dim,num_layers, learning_rate, epochs, sa
             best_r_squared = r_squared
             best_func = copy.deepcopy(func)
     
+        plt.plot(losses,label='Train Losses')
+        plt.legend()
+        plt.title('Train Loss (MSE)')
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss')
+        plt.savefig(f"{save_path}/Train_loss_idx_{idx}.png")
+        plt.close()
+        
+        plt.plot(val_losses,label='Validation Losses')
+        plt.legend()
+        plt.title('Validation Loss (MSE)')
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss')
+        plt.savefig(f"{save_path}/Validation_loss_idx_{idx}.png")
+        plt.close()
+        
         plt.plot(losses,label='Train Losses')
         plt.plot(val_losses,label='Validation Losses')
         plt.legend()
@@ -315,12 +343,12 @@ if not os.path.exists(save_path_csv2):
 # 결과를 저장할 DataFrame 생성
 results_df_train = pd.DataFrame(columns=['N_Samples', 'Hidden_Dim', 'Learning_Rate', 'Epochs', 'Data_Type', 'R_Squared', 'Mean_Abs_Rel_Residual', 'Max_Abs_Rel_Residual'])
 results_df_test = pd.DataFrame(columns=['N_Samples', 'Hidden_Dim', 'Learning_Rate', 'Epochs', 'Data_Type', 'R_Squared', 'Mean_Abs_Rel_Residual', 'Max_Abs_Rel_Residual'])
-timestamp = datetime.datetime.now().strftime("%m-%d_%H %M")
+timestamp = datetime.datetime.now().strftime("%m-%d_%H%M")
 
 for n_samples, hidden_dim, learning_rate, epochs in zip(n_samples_list, hidden_dim_list, learning_rate_list, epochs_list):
     # 결과 저장 경로
-    save_path = f"{save_path_csv}/{timestamp}_samples_{n_samples}_hidden_{hidden_dim}_lr_{learning_rate}_epoch_{epochs}"
-    save_path2 = f"{save_path_csv}/{save_path_csv2}/{timestamp}_Numerical_samples_{n_samples}_hidden_{hidden_dim}_lr_{learning_rate}_epoch_{epochs}"
+    save_path = f"{save_path_csv}/{timestamp}_sam{n_samples}_layer{num_layers}_dim{hidden_dim}_lr{learning_rate}_epoch{epochs}_batch{batch_size}_minepoch{min_epoch}_patience{patience}"
+    save_path2 = f"{save_path_csv}/{save_path_csv2}/{timestamp}_Numerical_sam{n_samples}_layer{num_layers}_dim{hidden_dim}_lr{learning_rate}_epoch{epochs}_batch{batch_size}_minepoch{min_epoch}_patience_{patience}"
     # 디렉토리가 없으면 생성
     if not os.path.exists(save_path):
         os.makedirs(save_path)
