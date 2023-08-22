@@ -12,14 +12,14 @@ import datetime
 import copy
 
 ############################################################################################################################
-#2023-08/22 13:30 민준 update
+#2023-08/22 18:23 민준 update
 n_samples = 1000
 num_layers = 3 # 실제 레이어의 수. 코드의 for문에서 -1을 이미 적용함
 hidden_dim = 32
 learning_rate = 0.001
-epochs = 3000
+epochs = 100
 batch_size= 70  # 배치 사이즈
-model_try= 5   # 해당 값으로 트라이할 모델 수
+model_try= 1   # 해당 값으로 트라이할 모델 수
 min_epoch = 300 # model당 최소 epoch. 해당 값 이전까지는 stop하지않음
 ReLU_On = False # True 적용시 레이어의 ReLU 활성화
 cuda_On = False # cuDNN 설치 전까지 False 사용. 혹시 사용할 수도 있으니 다들 사전에 설치하면 좋겠음
@@ -350,7 +350,8 @@ def save_quiver(x_data, x_pred, data_type, hidden_dim, n_samples, epochs, save_p
     U, V = predicted_positions[:, 0] - actual_positions[:, 0], predicted_positions[:, 1] - actual_positions[:, 1]
 
     # quiver 그래프로 표시
-    plt.quiver(X, Y, U, V, angles='xy', scale_units='xy', scale=1000000000000000000000000, color='red', label='Residual Vectors')
+    plt.plot(x_data[:, 0].detach().numpy(), x_data[:, 1].detach().numpy(),color='red',linewidth=0.5, label='True trajectory')
+    plt.quiver(X, Y, U, V, angles='xy', scale_units='xy', scale=1, color='blue', label='Residual Vectors')
     plt.xlabel('X component')
     plt.ylabel('Y component')
     plt.legend()
