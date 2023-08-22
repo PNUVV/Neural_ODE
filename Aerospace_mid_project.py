@@ -12,15 +12,15 @@ import datetime
 import copy
 
 ############################################################################################################################
-#2023-08/22 18:23 민준 update
+#2023-08/22 18:46 민준 update
 n_samples = 1000
 num_layers = 3 # 실제 레이어의 수. 코드의 for문에서 -1을 이미 적용함
 hidden_dim = 32
-learning_rate = 0.001
-epochs = 100
+learning_rate = 0.005
+epochs = 3000
 batch_size= 70  # 배치 사이즈
-model_try= 1   # 해당 값으로 트라이할 모델 수
-min_epoch = 300 # model당 최소 epoch. 해당 값 이전까지는 stop하지않음
+model_try= 5   # 해당 값으로 트라이할 모델 수
+min_epoch = 1000 # model당 최소 epoch. 해당 값 이전까지는 stop하지않음
 ReLU_On = False # True 적용시 레이어의 ReLU 활성화
 cuda_On = False # cuDNN 설치 전까지 False 사용. 혹시 사용할 수도 있으니 다들 사전에 설치하면 좋겠음
 patience = 1 #이 epoch동안 val_loss 기록이 단 한 번도 개선되지 않으면 iteration을 종료
@@ -227,31 +227,6 @@ def save_2d_and_actual_vs_predicted_train_amp(x_data, x_pred, data_type, hidden_
     plt.savefig(f"{save_path}/{file_suffix}_actual_vs_predict.png")
     plt.close()
 
-
-
-# def save_2d_and_actual_vs_predicted_train(x_data, x_pred, data_type, hidden_dim, n_samples, epochs, save_path):
-#     file_suffix = f"{data_type}"
-#     # 2D Motion Plot
-#     plt.plot(x_data[:, 0].detach().numpy(), x_data[:, 1].detach().numpy(), linewidth= 5,label='True trajectory')
-#     plt.plot(x_pred[:, 0].detach().numpy(), x_pred[:, 1].detach().numpy(), label='Neural ODE approximation')
-#     plt.legend()
-#     plt.xlabel('X Position')
-#     plt.ylabel('Y Position')
-#     plt.title('2D Motion')
-#     plt.savefig(f"{save_path}/{file_suffix}_2D_motion.png")
-#     plt.close()
-
-#     # Actual vs Predicted Plot
-#     plt.plot(x_data[:, 0].detach().numpy(), x_pred[:, 0].detach().numpy(),linewidth=5, label='X component')
-#     plt.plot(x_data[:, 1].detach().numpy(), x_pred[:, 1].detach().numpy(), linewidth=5, label='Y component') 
-#     plt.plot(torch.linspace(-1, 1, 100), torch.linspace(-1, 1, 100), color='red', linewidth=1.2,label='True = Predicted')
-#     plt.xlabel('Actual')
-#     plt.ylabel('Predicted')
-#     plt.legend()
-#     plt.title('Actual vs Predicted Plot')
-#     plt.grid()
-#     plt.savefig(f"{save_path}/{file_suffix}_actual_vs_predict.png")
-#     plt.close()
     
 def save_2d_and_actual_vs_predicted_train(x_data, x_pred, data_type, hidden_dim, n_samples, epochs, save_path):
     file_suffix = f"{data_type}"
@@ -350,13 +325,19 @@ def save_quiver(x_data, x_pred, data_type, hidden_dim, n_samples, epochs, save_p
     U, V = predicted_positions[:, 0] - actual_positions[:, 0], predicted_positions[:, 1] - actual_positions[:, 1]
 
     # quiver 그래프로 표시
-    plt.plot(x_data[:, 0].detach().numpy(), x_data[:, 1].detach().numpy(),color='red',linewidth=0.5, label='True trajectory')
-    plt.quiver(X, Y, U, V, angles='xy', scale_units='xy', scale=1, color='blue', label='Residual Vectors')
+    # plt.scatter(x_data[:, 0].detach().numpy(), x_data[:, 1].detach().numpy(),color='blue',s=5, label='True data')
+    plt.quiver(X, Y, U, V, angles='xy', scale_units='xy', scale=1, color='red', label='Residual Vectors')
     plt.xlabel('X component')
     plt.ylabel('Y component')
     plt.legend()
     plt.title('Residual Vectors')
     plt.grid()
+    if file_suffix == 'Validation':
+        plt.xlim(-1.4, -0.4)
+        plt.ylim(-0.35, 0.65)
+    elif file_suffix == 'Test':
+        plt.xlim(-0.9, 0.1)
+        plt.ylim(0.3, 1.3)
     plt.savefig(f"{save_path}/{file_suffix}_quiver.png")
     plt.close()
 
