@@ -42,12 +42,14 @@ ReLU_On = False # True 적용시 레이어의 ReLU 활성화
 cuda_On = False # cuDNN 설치 전까지 False 사용. 혹시 사용할 수도 있으니 다들 사전에 설치하면 좋겠음
 patience = 1 # 이 epoch동안 val_loss 기록이 단 한 번도 개선되지 않으면 iteration을 종료
 scaler = 0.1 # quiver scale 조정 값
-amplification_factor = 5 # 증폭계수 적용
+amplification_factor = 20 # 증폭계수 적용
 ####################################################################################################################################################
 func = ODEFunc(num_layers,hidden_dim)
 model = func
 model.load_state_dict(torch.load('best_model.pt')) # 불러올 모델. 해당 가중치로 그래프만 그려줍니다. results 폴더 바깥으로 best_model.pt 파일을 빼주세요
 ####################################################################################################################################################
+
+print("Model Load")
 
 def euclidean_distance(x1, x2):
     if x1.requires_grad:
@@ -275,7 +277,9 @@ for n_samples, hidden_dim, learning_rate, epochs in zip(n_samples_list, hidden_d
     # if not os.path.exists(save_path2):
     #     os.makedirs(save_path2)
 
-    # save_2d_and_actual_vs_predicted_amp(x_train, x_pred_train_best, 'Train', hidden_dim, n_samples, epochs, save_path, amplification_factor)
+    save_2d_and_actual_vs_predicted_amp(x_train, x_pred_train_best, 'Train', hidden_dim, n_samples, epochs, save_path, amplification_factor)
+    save_2d_and_actual_vs_predicted_amp(x_val, x_pred_val_best, "Validation", hidden_dim, n_samples, epochs, save_path, amplification_factor)
+    save_2d_and_actual_vs_predicted_amp(x_test, x_pred_test_best, 'Test', hidden_dim, n_samples, epochs, save_path, amplification_factor)
     # train
     plot_radius_deviation_histogram(x_train, x_pred_train_best, 'Train', hidden_dim, n_samples, epochs, save_path)
     save_2d_and_actual_vs_predicted(x_train, x_pred_train_best, 'Train', hidden_dim, n_samples, epochs, save_path)
