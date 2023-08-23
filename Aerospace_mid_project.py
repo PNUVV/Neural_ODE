@@ -12,7 +12,7 @@ import datetime
 import copy
 
 ############################################################################################################################
-#2023-08/22 23:20 민준 update
+#2023-08/23 21:27 민기 update
 n_samples = 1000
 num_layers = 3 # 실제 레이어의 수. 코드의 for문에서 -1을 이미 적용함
 hidden_dim = 32
@@ -43,6 +43,13 @@ amplification_factor = 5 # 증폭계수 적용
 # amplification_factor = 5 # 증폭계수 적용
 ############################################################################################################################
 
+
+def euclidean_distance(x1, x2):
+    if x1.requires_grad:
+        x1 = x1.detach()
+    if x2.requires_grad:
+        x2 = x2.detach()
+    return torch.sqrt(torch.sum((x1 - x2) ** 2, dim=1))
 
 def train_ode_model(hidden_dim,num_layers, learning_rate, epochs):
     class ODEFunc(nn.Module):
@@ -187,6 +194,7 @@ def train_ode_models(n_samples, hidden_dim,num_layers, learning_rate, epochs, sa
     return best_func, max_r_squared_model,x_pred_train_best,x_pred_val_best,x_pred_test_best
 
 
+
 def save_2d_and_actual_vs_predicted_amp(x_data, x_pred, data_type, hidden_dim, n_samples, epochs, save_path, amplification_factor):
     file_suffix = f"{data_type}"
     # Actual vs Predicted Plot
@@ -255,7 +263,20 @@ def save_2d_and_actual_vs_predicted(x_data, x_pred, data_type, hidden_dim, n_sam
         plt.xlim(0.5, 1.1)
         plt.ylim(0.5, 1.1)
     plt.savefig(f"{save_path}/{file_suffix}_actual_vs_predict_Y.png")
-    plt.close() 
+    plt.close()
+
+    # 3. Actual vs Predicted euclidean_distance Distance Plot
+    distances = euclidean_distance(x_data, x_pred).numpy()
+
+    plt.figure(figsize=(10, 6))
+    plt.scatter(range(len(distances)), distances, label='Euclidean Distance', alpha=0.7)
+    plt.xlabel('Index')
+    plt.ylabel('Euclidean Distance between Actual and Predicted')
+    plt.title(f'Euclidean Distance over Data Points - {data_type}')
+    plt.legend()
+    plt.grid()
+    plt.savefig(f"{save_path}/{file_suffix}_distance_plot.png")
+    plt.close()
    
 def save_quiver(x_data, x_pred, data_type, hidden_dim, n_samples, epochs, save_path,scaler):
     file_suffix = f"{data_type}"
