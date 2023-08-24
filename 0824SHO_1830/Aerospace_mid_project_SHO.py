@@ -210,7 +210,7 @@ lhd_samples = lhs(2, samples=n_samples)
 t_lhd = torch.tensor(np.sort(lhd_samples[:, 0]) * 2 * np.pi, dtype=torch.float32)
 
 tensor1 = torch.tensor([0])
-tensor2 = torch.tensor([0])
+tensor2 = torch.tensor([1])
 
 # 텐서 합치기
 x_initial = torch.cat((tensor1, tensor2), dim=0)
