@@ -7,9 +7,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import linregress
 import pandas as pd
-from sklearn.metrics import mean_absolute_error, max_error
+from sklearn.metrics import mean_absolute_error
 import datetime
-import copy
+
 
 class ODEFunc(nn.Module):
         def __init__(self, class_num_layers, class_hidden_dim):
@@ -29,63 +29,56 @@ class ODEFunc(nn.Module):
             return self.net(x)
         
 ####################################################################################################################################################
-#2023-08/23 23:00 민준 update 모델 불러오기
+#2023-08/24 17:40 민준 update 모델 불러오기
 n_samples = 1000
 num_layers = 3 # 실제 레이어의 수. 코드의 for문에서 -1을 이미 적용함
 hidden_dim = 32
 learning_rate = 0.005
 epochs = 1000
 batch_size= 70  # 배치 사이즈
-model_try= 3   # 해당 값으로 트라이할 모델 수
+model_try= 1   # 해당 값으로 트라이할 모델 수
 min_epoch = 300 # model당 최소 epoch. 해당 값 이전까지는 stop하지않음
 ReLU_On = False # True 적용시 레이어의 ReLU 활성화
 cuda_On = False # cuDNN 설치 전까지 False 사용. 혹시 사용할 수도 있으니 다들 사전에 설치하면 좋겠음
 patience = 1 # 이 epoch동안 val_loss 기록이 단 한 번도 개선되지 않으면 iteration을 종료
-scaler = 0.1 # quiver scale 조정 값
+scaler = 1 # quiver scale 조정 값
 amplification_factor = 20 # 증폭계수 적용
 ####################################################################################################################################################
-func = ODEFunc(num_layers,hidden_dim)
-model = func
+device = torch.device('cuda' if cuda_On else 'cpu')
+model = ODEFunc(num_layers,hidden_dim).to(device)
 model.load_state_dict(torch.load('best_model.pt')) # 불러올 모델. 해당 가중치로 그래프만 그려줍니다. results 폴더 바깥으로 best_model.pt 파일을 빼주세요
 ####################################################################################################################################################
 
-print("Model Load")
-
-def euclidean_distance(x1, x2):
-    if x1.requires_grad:
-        x1 = x1.detach()
-    if x2.requires_grad:
-        x2 = x2.detach()
-    return torch.sqrt(torch.sum((x1 - x2) ** 2, dim=1))
-
+print("Model Loaded")
 
 def save_2d_and_actual_vs_predicted_amp(x_data, x_pred, data_type, hidden_dim, n_samples, epochs, save_path, amplification_factor):
     file_suffix = f"{data_type}"
     # Actual vs Predicted Plot
-    error_x = (x_data[:, 0].detach().numpy() - x_pred[:, 0].detach().numpy())
-    error_y = (x_data[:, 1].detach().numpy() - x_pred[:, 1].detach().numpy())
+    error_x = (x_data[:, 0].cpu().detach().numpy() - x_pred[:, 0].cpu().detach().numpy())
+    error_y = (x_data[:, 1].cpu().detach().numpy() - x_pred[:, 1].cpu().detach().numpy())
     total_error = np.sqrt(error_x**2 + error_y**2) * amplification_factor
 
-    plt.plot(x_data[:, 0].detach().numpy(), x_pred[:, 0].detach().numpy() + total_error, linewidth=4, label='X component with Total Error')
-    plt.plot(x_data[:, 1].detach().numpy(), x_pred[:, 1].detach().numpy() + total_error, linewidth=4, label='Y component with Total Error')
+    plt.plot(x_data[:, 0].cpu().detach().numpy(), x_pred[:, 0].cpu().detach().numpy() + total_error, linewidth=4, label='X component with Total Error')
+    plt.plot(x_data[:, 1].cpu().detach().numpy(), x_pred[:, 1].cpu().detach().numpy() + total_error, linewidth=4, label='Y component with Total Error')
     plt.plot(torch.linspace(-1, 1, 100), torch.linspace(-1, 1, 100), color='red', linewidth=1.2, label='True = Predicted')
     plt.xlabel('Actual')
     plt.ylabel('Predicted')
     plt.legend()
     plt.title('Actual vs Predicted Plot with Total Error Amplification')
     plt.grid()
-    plt.savefig(f"{save_path}/{file_suffix}_actual_vs_predict_amp.png")
+    plt.savefig(f"{save_path}/{file_suffix}_actual_vs_predict_amp{amplification_factor}.png")
     plt.close()
+
 
     
 def save_2d_and_actual_vs_predicted(x_data, x_pred, data_type, hidden_dim, n_samples, epochs, save_path):
     file_suffix = f"{data_type}"
     # 2D Motion Plot
-    plt.plot(x_data[:, 0].detach().numpy(), x_data[:, 1].detach().numpy(),color='red', label='True trajectory')
-    plt.scatter(x_pred[:, 0].detach().numpy(), x_pred[:, 1].detach().numpy(), label='Neural ODE approximation')
+    plt.plot(x_data[:, 0].cpu().detach().numpy(), x_data[:, 1].cpu().detach().numpy(),color='red', label='True trajectory')
+    plt.scatter(x_pred[:, 0].cpu().detach().numpy(), x_pred[:, 1].cpu().detach().numpy(), label='Neural ODE approximation')
     plt.legend()
-    plt.xlabel('X Position')
-    plt.ylabel('Y Position')
+    plt.xlabel('X component')
+    plt.ylabel('Y component')
     plt.title('2D Motion')
     if file_suffix == 'Validation':
         plt.xlim(-1.4, -0.4)
@@ -97,7 +90,7 @@ def save_2d_and_actual_vs_predicted(x_data, x_pred, data_type, hidden_dim, n_sam
     plt.close()
 
     # Actual vs Predicted Plot
-    plt.scatter(x_data[:, 0].detach().numpy(), x_pred[:, 0].detach().numpy(), label='X component')
+    plt.scatter(x_data[:, 0].cpu().detach().numpy(), x_pred[:, 0].cpu().detach().numpy(), label='X component')
     plt.plot(torch.linspace(-1.1, 1.1, 100), torch.linspace(-1.1, 1.1, 100), color='red', linewidth=1.2,label='True = Predicted')
     plt.xlabel('Actual')
     plt.ylabel('Predicted')
@@ -113,7 +106,7 @@ def save_2d_and_actual_vs_predicted(x_data, x_pred, data_type, hidden_dim, n_sam
     plt.savefig(f"{save_path}/{file_suffix}_actual_vs_predict_X.png")
     plt.close()
 
-    plt.scatter(x_data[:, 1].detach().numpy(), x_pred[:, 1].detach().numpy(), label='Y component')
+    plt.scatter(x_data[:, 1].cpu().detach().numpy(), x_pred[:, 1].cpu().detach().numpy(), label='Y component')
     plt.plot(torch.linspace(-1.1, 1.1, 100), torch.linspace(-1.1, 1.1, 100), color='red', linewidth=1.2,label='True = Predicted')
     plt.xlabel('Actual')
     plt.ylabel('Predicted')
@@ -129,23 +122,11 @@ def save_2d_and_actual_vs_predicted(x_data, x_pred, data_type, hidden_dim, n_sam
     plt.savefig(f"{save_path}/{file_suffix}_actual_vs_predict_Y.png")
     plt.close()
 
-    # 3. Actual vs Predicted euclidean_distance Distance Plot
-    distances = euclidean_distance(x_data, x_pred).numpy()
-
-    plt.figure(figsize=(10, 6))
-    plt.scatter(range(len(distances)), distances, label='Euclidean Distance', alpha=0.7)
-    plt.xlabel('Index')
-    plt.ylabel('Euclidean Distance between Actual and Predicted')
-    plt.title(f'Euclidean Distance over Data Points - {data_type}')
-    plt.legend()
-    plt.grid()
-    plt.savefig(f"{save_path}/{file_suffix}_distance_plot.png")
-    plt.close()
    
-def save_quiver(x_data, x_pred, data_type, hidden_dim, n_samples, epochs, save_path,scaler):
+def save_quiver_norm(x_data, x_pred, data_type, hidden_dim, n_samples, epochs, save_path,scaler):
     file_suffix = f"{data_type}"
-    actual_positions = x_data.detach().numpy()
-    predicted_positions = x_pred.detach().numpy()
+    actual_positions = x_data.cpu().detach().numpy()
+    predicted_positions = x_pred.cpu().detach().numpy()
 
     # 벡터를 그리기 위한 시작점 및 방향 설정
     X, Y = actual_positions[:, 0], actual_positions[:, 1]
@@ -167,6 +148,19 @@ def save_quiver(x_data, x_pred, data_type, hidden_dim, n_samples, epochs, save_p
         plt.ylim(0.3, 1.3)
     plt.savefig(f"{save_path}/{file_suffix}_scaler{scaler}_quiver.png")
     plt.close()
+    
+    norm_true = 1
+    norm_pred = torch.sqrt(x_pred[:, 0]**2 + x_pred[:, 1]**2)
+    plt.figure(figsize=(10, 6))
+    plt.scatter(range(len(x_data)), norm_pred.cpu().detach().numpy(), label='predicted vector norm', alpha=0.7, s=1)
+    plt.plot(range(len(x_data)), [norm_true] * len(x_data), color='red', label='True vector norm')
+    plt.xlabel('Data Index')
+    plt.ylabel('vector norm ')
+    plt.title(f'{data_type} - predicted vector norm VS true vector norm')
+    plt.legend()
+    plt.grid()
+    plt.savefig(f"{save_path}/{file_suffix}_vector_norm.png")
+    plt.close()
 
 
 def ensure_list(*values):
@@ -183,7 +177,7 @@ def plot_radius_deviation_histogram(x_data, x_pred, data_type, hidden_dim, n_sam
     radius_deviation = actual_radius - pred_radius
 
     # Plotting the histogram of the radius deviation
-    plt.hist(radius_deviation.detach().numpy(), bins=20, color="blue", edgecolor="black", alpha=0.7)
+    plt.hist(radius_deviation.cpu().detach().numpy(), bins=20, color="blue", edgecolor="black", alpha=0.7)
     plt.title(f'Radius Deviation Histogram\nHidden Dim: {hidden_dim}, Samples: {n_samples}, Epochs: {epochs}')
     plt.xlabel('Radius Deviation')
     plt.ylabel('Frequency')
@@ -200,27 +194,29 @@ def plot_radius_deviation_histogram(x_data, x_pred, data_type, hidden_dim, n_sam
     plt.close() # Close the plot to avoid displaying it in the notebook
 
 def return_numerical_validation(x_data, x_pred, data_type, hidden_dim, n_samples, epochs, save_path):
-    slope, intercept, r_value, _, _ = linregress(x_data.flatten().detach().numpy(), x_pred.flatten().detach().numpy())
+    slope, intercept, r_value, _, _ = linregress(x_data.flatten().cpu().detach().numpy(), x_pred.flatten().cpu().detach().numpy())
     r_squared = r_value**2
-    mean_abs_rel_residual = mean_absolute_error(x_data.detach().numpy(), x_pred.detach().numpy()) / (x_data.abs().mean())
-    max_abs_rel_residual = max(np.max(np.abs(x_data.detach().numpy() - x_pred.detach().numpy()), axis=0) / x_data.abs().max())
+    mean_abs_rel_residual = mean_absolute_error(x_data.cpu().detach().numpy(), x_pred.cpu().detach().numpy()) / (x_data.abs().mean().cpu())
+    max_abs_rel_residual = max(np.max(np.abs(x_data.cpu().detach().numpy() - x_pred.cpu().detach().numpy()), axis=0) / x_data.abs().max().cpu())
 
     return r_squared, mean_abs_rel_residual, max_abs_rel_residual   
 
+
 def numerical_validation(x_data, x_pred):
-    slope, intercept, r_value, _, _ = linregress(x_data.flatten().detach().numpy(), x_pred.flatten().detach().numpy())
+    slope, intercept, r_value, _, _ = linregress(x_data.flatten().cpu().detach().numpy(), x_pred.flatten().cpu().detach().numpy())
     r_squared = r_value**2
-    mean_abs_rel_residual = mean_absolute_error(x_data.detach().numpy(), x_pred.detach().numpy()) / (x_data.abs().mean())
-    max_abs_rel_residual = max(np.max(np.abs(x_data.detach().numpy() - x_pred.detach().numpy()), axis=0) / x_data.abs().max())
+    mean_abs_rel_residual = mean_absolute_error(x_data.cpu().detach().numpy(), x_pred.cpu().detach().numpy()) / (x_data.abs().mean().cpu())
+    max_abs_rel_residual = max(np.max(np.abs(x_data.cpu().detach().numpy() - x_pred.cpu().detach().numpy()), axis=0) / x_data.abs().max().cpu())
     
     return r_squared, mean_abs_rel_residual, max_abs_rel_residual
 
+
 def save_best_model_draw(save_path, x_pred_test_best, x_pred_val_best, x_pred_train_best):
     # 2D Motion Plot
-    plt.plot(x_lhd[:, 0].detach().numpy(), x_lhd[:, 1].detach().numpy(),color='red', label='True trajectory')
-    plt.scatter(x_pred_train_best[:, 0].detach().numpy(), x_pred_train_best[:, 1].detach().numpy(), label='Neural ODE approximation')
-    plt.scatter(x_pred_val_best[:, 0].detach().numpy(), x_pred_val_best[:, 1].detach().numpy(), label='Predicted validation trajectory')
-    plt.scatter(x_pred_test_best[:, 0].detach().numpy(), x_pred_test_best[:, 1].detach().numpy(), label='Predicted test trajectory')
+    plt.plot(x_lhd[:, 0].cpu().detach().numpy(), x_lhd[:, 1].cpu().detach().numpy(),color='red', label='True trajectory')
+    plt.scatter(x_pred_train_best[:, 0].cpu().detach().numpy(), x_pred_train_best[:, 1].cpu().detach().numpy(), label='Neural ODE approximation')
+    plt.scatter(x_pred_val_best[:, 0].cpu().detach().numpy(), x_pred_val_best[:, 1].cpu().detach().numpy(), label='Predicted validation trajectory')
+    plt.scatter(x_pred_test_best[:, 0].cpu().detach().numpy(), x_pred_test_best[:, 1].cpu().detach().numpy(), label='Predicted test trajectory')
     plt.legend()
     plt.xlabel('X Position')
     plt.ylabel('Y Position')
@@ -228,14 +224,20 @@ def save_best_model_draw(save_path, x_pred_test_best, x_pred_val_best, x_pred_tr
     plt.savefig(f"{save_path}/best_model_draw.png")
     plt.close()
 
+
+use_cuda = torch.cuda.is_available()
+print("you can use cuda" if use_cuda else "you can't use cuda")
+print(f'Using device: {device}')
+
 # Latin Hypercube Design (LHD) sample generation
 lhd_samples = lhs(2, samples=n_samples)
-t_lhd = torch.tensor(np.sort(lhd_samples[:, 0]) * 2 * np.pi, dtype=torch.float32)
-x_lhd = torch.cat((torch.sin(t_lhd).reshape(-1, 1), torch.cos(t_lhd).reshape(-1, 1)), dim=1)
+t_lhd = torch.tensor(np.sort(lhd_samples[:, 0]) * 2 * np.pi, dtype=torch.float32).to(device)
+x_lhd = torch.cat((torch.sin(t_lhd).reshape(-1, 1), torch.cos(t_lhd).reshape(-1, 1)), dim=1).to(device)
 
 # Data splitting
 train_size = int(0.7 * len(x_lhd))
 val_size = int(0.15 * len(x_lhd))
+
 x_train = x_lhd[:train_size]
 t_train = t_lhd[:train_size]
 x_val = x_lhd[train_size:train_size + val_size]
@@ -245,10 +247,9 @@ t_test = t_lhd[train_size + val_size:]
 
 
 x_pred_train_best = odeint(model, x_train[0], t_train).squeeze() # odeint to be defined
-
 x_pred_val_best = odeint(model, x_val[0], t_val).squeeze() # odeint to be defined
-
 x_pred_test_best = odeint(model, x_test[0], t_test).squeeze() # odeint to be defined
+
 
 r_squared_train, mean_abs_rel_residual_train, max_abs_rel_residual_train = numerical_validation(x_train, x_pred_train_best)
 r_squared_val, mean_abs_rel_residual_val, max_abs_rel_residual_val = numerical_validation(x_val, x_pred_val_best)
@@ -283,15 +284,15 @@ for n_samples, hidden_dim, learning_rate, epochs in zip(n_samples_list, hidden_d
     # train
     plot_radius_deviation_histogram(x_train, x_pred_train_best, 'Train', hidden_dim, n_samples, epochs, save_path)
     save_2d_and_actual_vs_predicted(x_train, x_pred_train_best, 'Train', hidden_dim, n_samples, epochs, save_path)
-    save_quiver(x_train, x_pred_train_best, 'Train', hidden_dim, n_samples, epochs, save_path,scaler)
+    save_quiver_norm(x_train, x_pred_train_best, 'Train', hidden_dim, n_samples, epochs, save_path,scaler)
     # val
     plot_radius_deviation_histogram(x_val, x_pred_val_best, "Validation", hidden_dim, n_samples, epochs, save_path)
     save_2d_and_actual_vs_predicted(x_val, x_pred_val_best, "Validation", hidden_dim, n_samples, epochs, save_path)
-    save_quiver(x_val, x_pred_val_best, "Validation", hidden_dim, n_samples, epochs, save_path,scaler)
+    save_quiver_norm(x_val, x_pred_val_best, "Validation", hidden_dim, n_samples, epochs, save_path,scaler)
     # test
     plot_radius_deviation_histogram(x_test, x_pred_test_best, 'Test', hidden_dim, n_samples, epochs, save_path)
     save_2d_and_actual_vs_predicted(x_test, x_pred_test_best, 'Test', hidden_dim, n_samples, epochs, save_path)
-    save_quiver(x_test, x_pred_test_best, 'Test', hidden_dim, n_samples, epochs, save_path,scaler)
+    save_quiver_norm(x_test, x_pred_test_best, 'Test', hidden_dim, n_samples, epochs, save_path,scaler)
     # 최종 그래프
     save_best_model_draw(save_path, x_pred_test_best, x_pred_val_best, x_pred_train_best)
 
@@ -300,3 +301,4 @@ for n_samples, hidden_dim, learning_rate, epochs in zip(n_samples_list, hidden_d
 results_df_train.to_csv(f"{save_path}/Train_results_{hidden_dim}_{n_samples}.csv", index=False)
 validation_results.to_csv(f"{save_path}/validation_results_{hidden_dim}_{n_samples}.csv", index=False)
 results_df_test.to_csv(f"{save_path}/Test_results_{hidden_dim}_{n_samples}.csv", index=False)
+
