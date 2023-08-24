@@ -12,18 +12,18 @@ import datetime
 import copy
 
 ############################################################################################################################
-#2023-08/24 16:45 민준 update
+#2023-08/24 17:40 민준 update
 n_samples = 1000
 num_layers = 3 # 실제 레이어의 수. 코드의 for문에서 -1을 이미 적용함
-hidden_dim = 64
+hidden_dim = 32
 learning_rate = 0.005
-epochs = 70
+epochs = 1000
 batch_size= 70  # 배치 사이즈
 model_try= 1   # 해당 값으로 트라이할 모델 수
 min_epoch = 500 # model당 최소 epoch. 해당 값 이전까지는 stop하지않음
 ReLU_On = False # True 적용시 레이어의 ReLU 활성화
-cuda_On = True # cuDNN 설치 전까지 False 사용. 혹시 사용할 수도 있으니 다들 사전에 설치하면 좋겠음
-patience = 3 # 이 epoch동안 val_loss 기록이 단 한 번도 개선되지 않으면 iteration을 종료
+cuda_On = False # cuDNN 설치 전까지 False 사용. 혹시 사용할 수도 있으니 다들 사전에 설치하면 좋겠음
+patience = 1 # 이 epoch동안 val_loss 기록이 단 한 번도 개선되지 않으면 iteration을 종료
 scaler = 1 # quiver scale 조정 값
 amplification_factor = 5 # 증폭계수 적용
 ############################################################################################################################
@@ -213,8 +213,8 @@ def save_2d_and_actual_vs_predicted(x_data, x_pred, data_type, hidden_dim, n_sam
     plt.plot(x_data[:, 0].cpu().detach().numpy(), x_data[:, 1].cpu().detach().numpy(),color='red', label='True trajectory')
     plt.scatter(x_pred[:, 0].cpu().detach().numpy(), x_pred[:, 1].cpu().detach().numpy(), label='Neural ODE approximation')
     plt.legend()
-    plt.xlabel('X Position')
-    plt.ylabel('Y Position')
+    plt.xlabel('X component')
+    plt.ylabel('Y component')
     plt.title('2D Motion')
     if file_suffix == 'Validation':
         plt.xlim(-1.4, -0.4)
@@ -297,10 +297,6 @@ def save_quiver_norm(x_data, x_pred, data_type, hidden_dim, n_samples, epochs, s
     plt.grid()
     plt.savefig(f"{save_path}/{file_suffix}_vector_norm.png")
     plt.close()
-
-
-
-
 
 
 
