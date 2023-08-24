@@ -12,10 +12,10 @@ import datetime
 import copy
 
 ############################################################################################################################
-#2023-08/24 16:23 민준 update
+#2023-08/24 16:45 민준 update
 n_samples = 1000
 num_layers = 3 # 실제 레이어의 수. 코드의 for문에서 -1을 이미 적용함
-hidden_dim = 32
+hidden_dim = 64
 learning_rate = 0.005
 epochs = 70
 batch_size= 70  # 배치 사이즈
@@ -285,11 +285,10 @@ def save_quiver_norm(x_data, x_pred, data_type, hidden_dim, n_samples, epochs, s
     plt.savefig(f"{save_path}/{file_suffix}_scaler{scaler}_quiver.png")
     plt.close()
     
-
     norm_true = 1
     norm_pred = torch.sqrt(x_pred[:, 0]**2 + x_pred[:, 1]**2)
     plt.figure(figsize=(10, 6))
-    plt.scatter(range(len(x_data)), norm_pred.detach().numpy(), label='predicted vector norm', alpha=0.7, s=1)
+    plt.scatter(range(len(x_data)), norm_pred.cpu().detach().numpy(), label='predicted vector norm', alpha=0.7, s=1)
     plt.plot(range(len(x_data)), [norm_true] * len(x_data), color='red', label='True vector norm')
     plt.xlabel('Data Index')
     plt.ylabel('vector norm ')
